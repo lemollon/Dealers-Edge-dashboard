@@ -198,6 +198,70 @@ class UIComponents:
         
         st.plotly_chart(fig, use_container_width=True)
     
+    def render_pressure_map(self, gex_profile: Dict):
+        """Render market maker pressure map visualization"""
+        if not gex_profile or 'strike_data' not in gex_profile:
+            st.warning("No data available for pressure map")
+            return
+        
+        st.markdown("""
+        <div class="mm-pressure-map">
+            <h3>🎯 Market Maker Pressure Map</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        df = gex_profile['strike_data']
+        current_price = gex_profile['current_price']
+        gamma_flip = gex_profile['gamma_flip']
+        
+        # Get relevant strikes around current price
+        relevant_strikes = df[
+            (df['strike'] >= current_price * 0.95) & 
+            (df['strike'] <= current_price * 1.05)
+        ].sort_values('strike', ascending=False)
+        
+        # Display pressure levels
+        for _, row in relevant_strikes.iterrows():
+            strike = row['strike']
+            net_gex = row['net_gex']
+            
+            # Determine pressure level
+            if abs(net_gex) > 1e9:
+                pressure_class = "high-pressure"
+                emoji = "🔴"
+            elif abs(current_price - strike) < 1:
+                pressure_class = "current-price"
+                emoji = "📍"
+            else:
+                pressure_class = "low-pressure"
+                emoji = "🟢"
+            
+            # Check if it's gamma flip
+            if abs(strike - gamma_flip) < 1:
+                emoji = "⚡"
+                pressure_class = "current-price"
+            
+            st.markdown(f"""
+            <div class="pressure-level {pressure_class}">
+                {emoji} ${strike:.0f} | GEX: {net_gex/1e6:.0f}M
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Summary box
+        dealer_pain = gex_profile.get('dealer_pain', 0)
+        if dealer_pain > 80:
+            status_msg = "🔥 EXTREME PRESSURE - Dealers trapped!"
+        elif dealer_pain > 60:
+            status_msg = "⚠️ HIGH PRESSURE - Volatility incoming"
+        else:
+            status_msg = "✅ MANAGEABLE - Dealers in control"
+        
+        st.info(f"""
+        **Pressure Status**: {status_msg}
+        **Gamma Flip**: ${gamma_flip:.2f}
+        **Pain Score**: {dealer_pain:.0f}/100
+        """)
+    
     def render_position_tracker(self, position_manager):
         """Render position tracking interface"""
         st.subheader("Active Positions")
