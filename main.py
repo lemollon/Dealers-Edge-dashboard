@@ -6,6 +6,7 @@ Professional GEX Trading Platform
 import streamlit as st
 import warnings
 from datetime import datetime
+import time
 
 # Import all modules
 from config import *
@@ -58,14 +59,8 @@ if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 if 'total_pnl' not in st.session_state:
     st.session_state.total_pnl = 0
-if 'alerts_config' not in st.session_state:
-    st.session_state.alerts_config = {
-        'min_confidence': MIN_CONFIDENCE_DEFAULT,
-        'auto_scan': False,
-        'scan_interval': 2
-    }
-if 'custom_symbols' not in st.session_state:
-    st.session_state.custom_symbols = []
+if 'current_analysis' not in st.session_state:
+    st.session_state.current_analysis = None
 
 # Header
 position_summary = position_manager.get_position_summary()
@@ -81,15 +76,13 @@ tabs = st.tabs([
     "🎯 Analysis", 
     "📊 Positions",
     "⚡ Auto-Alerts",
-    "📈 Report",
-    "⚙️ Settings"
+    "📈 Report"
 ])
 
 # Tab 1: Scanner
 with tabs[0]:
     st.header("🔍 Market Maker Vulnerability Scanner")
     
-    # Scanner controls
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     
     with col1:
@@ -104,45 +97,6 @@ with tabs[0]:
     with col4:
         scan_btn = st.button("🚀 SCAN ALL", type="primary", use_container_width=True)
     
-    # Quick scan options
-    quick_col1, quick_col2, quick_col3 = st.columns(3)
-    
-    with quick_col1:
-        if st.button("🔥 Scan High Volume Only"):
-            with st.spinner("Scanning high volume symbols..."):
-                high_vol_symbols = scanner.get_high_volume_symbols()
-                scan_results = scanner.scan_multiple_symbols(
-                    high_vol_symbols,
-                    min_confidence=min_confidence
-                )
-                st.session_state.scan_results = scan_results
-                st.success(f"✅ Scanned {len(high_vol_symbols)} high volume symbols!")
-    
-    with quick_col2:
-        if st.button("📊 Scan ETFs Only"):
-            with st.spinner("Scanning ETFs..."):
-                etf_symbols = [s for s in scanner.symbols if s in CORE_ETFS]
-                scan_results = scanner.scan_multiple_symbols(
-                    etf_symbols,
-                    min_confidence=min_confidence
-                )
-                st.session_state.scan_results = scan_results
-                st.success(f"✅ Scanned {len(etf_symbols)} ETFs!")
-    
-    with quick_col3:
-        if st.button("⭐ Scan Custom List"):
-            if st.session_state.custom_symbols:
-                with st.spinner("Scanning custom list..."):
-                    scan_results = scanner.scan_multiple_symbols(
-                        st.session_state.custom_symbols,
-                        min_confidence=min_confidence
-                    )
-                    st.session_state.scan_results = scan_results
-                    st.success(f"✅ Scanned {len(st.session_state.custom_symbols)} custom symbols!")
-            else:
-                st.warning("No custom symbols defined. Add them in Settings tab.")
-    
-    # Main scan
     if scan_btn:
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -168,9 +122,8 @@ with tabs[0]:
             
             alerts_sent = alert_manager.send_batch_alerts(high_value)
             if alerts_sent > 0:
-                st.success(f"✅ Sent {alerts_sent} alerts to Discord")
+                st.success(f"✅ Sent {alerts_sent} alerts")
     
-    # Display results
     if st.session_state.scan_results:
         ui.render_scan_results(
             st.session_state.scan_results,
@@ -183,15 +136,12 @@ with tabs[0]:
 with tabs[1]:
     st.header("🎯 Deep Market Maker Analysis")
     
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2 = st.columns([3, 1])
     
     with col1:
         symbol = st.text_input("Symbol", value="SPY").upper().strip()
     
     with col2:
-        analysis_type = st.selectbox("Analysis", ["Quick", "Deep", "Historical"])
-    
-    with col3:
         if st.button("🔄 Analyze", use_container_width=True):
             st.rerun()
     
@@ -203,31 +153,55 @@ with tabs[1]:
             gex_profile = analyzer.calculate_gex_profile(options_data)
             
             if gex_profile:
+                st.session_state.current_analysis = gex_profile
                 signals = analyzer.generate_all_signals(gex_profile, symbol)
                 best_signal = signals[0] if signals else None
                 
-                # Display results
+                # Display main analysis
                 ui.render_analysis_results(gex_profile, best_signal)
                 
-                # Charts
-                chart_tabs = st.tabs(["GEX Profile", "Pressure Map", "Historical"])
+                # Create sub-tabs for different visualizations
+                viz_tabs = st.tabs(["📊 GEX Charts", "🎯 Pressure Map", "📋 Trade Signals"])
                 
-                with chart_tabs[0]:
+                with viz_tabs[0]:
                     ui.render_gex_charts(gex_profile)
                 
-                with chart_tabs[1]:
+                with viz_tabs[1]:
                     ui.render_pressure_map(gex_profile)
                 
-                with chart_tabs[2]:
-                    if analysis_type in ["Deep", "Historical"]:
-                        historical_data = analyzer.get_historical_data(symbol)
-                        if historical_data is not None:
-                            ui.render_historical_analysis(historical_data, gex_profile)
-                
-                # Trade recommendations
-                st.subheader("📋 All Trade Signals")
-                for i, signal in enumerate(signals[:5]):
-                    ui.render_signal_card(signal, symbol, position_manager, alert_manager, i)
+                with viz_tabs[2]:
+                    st.subheader("📋 All Trade Signals")
+                    for i, signal in enumerate(signals[:5]):
+                        if signal:
+                            col1, col2, col3 = st.columns([3, 1, 1])
+                            
+                            with col1:
+                                confidence = signal.get('confidence', 0)
+                                emoji = SIGNAL_EMOJIS.get(signal.get('type', 'WAIT'), '📊')
+                                
+                                st.markdown(f"""
+                                **{emoji} {signal.get('type', '')}** - {signal.get('direction', '')}  
+                                Confidence: {confidence:.0f}% | {signal.get('reasoning', '')[:100]}...  
+                                Entry: {signal.get('entry', 'N/A')} | Target: {signal.get('target', 'N/A')}
+                                """)
+                            
+                            with col2:
+                                if st.button("Trade", key=f"trade_{signal.get('type', '')}_{i}"):
+                                    position = position_manager.add_position(
+                                        symbol,
+                                        gex_profile.get('current_price', 100),
+                                        signal.get('position_size', 1000) / gex_profile.get('current_price', 100),
+                                        signal.get('type', 'MANUAL'),
+                                        signal
+                                    )
+                                    st.success("Position opened!")
+                                    st.rerun()
+                            
+                            with col3:
+                                if st.button("Alert", key=f"alert_{signal.get('type', '')}_{i}"):
+                                    alert_msg = alert_manager.format_discord_alert(symbol, gex_profile, signal)
+                                    if alert_manager.send_discord_alert(alert_msg):
+                                        st.success("Alert sent!")
         else:
             st.error(f"Unable to fetch options data for {symbol}")
 
@@ -250,18 +224,30 @@ with tabs[2]:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Update All Positions"):
+        if st.button("🔄 Refresh Positions"):
             position_manager.update_positions()
             st.rerun()
     
     with col2:
-        if st.button("📊 Export Positions"):
-            ui.export_positions(position_manager)
+        if st.button("📊 Export History"):
+            # Create CSV export
+            import pandas as pd
+            if position_manager.closed_positions:
+                df = pd.DataFrame(position_manager.closed_positions)
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"trades_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
     
     with col3:
-        if st.button("🗑️ Clear Closed"):
-            position_manager.closed_positions = []
-            st.success("Cleared closed positions history")
+        if st.button("🗑️ Clear History"):
+            if st.checkbox("Confirm clear all closed positions"):
+                position_manager.closed_positions = []
+                st.success("History cleared")
+                st.rerun()
     
     # Display positions
     ui.render_position_tracker(position_manager)
@@ -271,96 +257,96 @@ with tabs[3]:
     st.header("⚡ Automated Alert Configuration")
     ui.render_alert_configuration(alert_manager, analyzer, scanner)
     
-    # Alert history
-    st.subheader("📜 Recent Alerts")
-    if hasattr(alert_manager, 'alert_history'):
-        for alert in alert_manager.alert_history[-10:]:
-            st.text(f"{alert['time']} - {alert['symbol']}: {alert['type']}")
+    # Alert log
+    st.subheader("📜 Alert History")
+    if hasattr(alert_manager, 'alert_history') and alert_manager.alert_history:
+        for alert in reversed(alert_manager.alert_history[-10:]):
+            st.text(f"{alert.get('time', 'N/A')} - {alert.get('symbol', 'N/A')}: {alert.get('type', 'N/A')}")
+    else:
+        st.info("No alerts sent yet")
 
 # Tab 5: Report
 with tabs[4]:
     st.header("📈 Performance Report")
     
-    # Performance metrics
+    # Overall performance
     ui.render_performance_report(position_manager)
     
     # Strategy breakdown
     st.subheader("📊 Strategy Performance")
-    strategy_metrics = position_manager.get_strategy_metrics()
     
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Squeeze Plays", 
-                 f"{strategy_metrics.get('SQUEEZE_PLAY', {}).get('win_rate', 0):.1f}%",
-                 f"P&L: ${strategy_metrics.get('SQUEEZE_PLAY', {}).get('total_pnl', 0):,.0f}")
-    
-    with col2:
-        st.metric("Premium Selling", 
-                 f"{strategy_metrics.get('PREMIUM_SELLING', {}).get('win_rate', 0):.1f}%",
-                 f"P&L: ${strategy_metrics.get('PREMIUM_SELLING', {}).get('total_pnl', 0):,.0f}")
-    
-    with col3:
-        st.metric("Iron Condors", 
-                 f"{strategy_metrics.get('IRON_CONDOR', {}).get('win_rate', 0):.1f}%",
-                 f"P&L: ${strategy_metrics.get('IRON_CONDOR', {}).get('total_pnl', 0):,.0f}")
-    
-    # Charts
-    if position_manager.closed_positions:
-        ui.render_performance_charts(position_manager)
-
-# Tab 6: Settings
-with tabs[5]:
-    st.header("⚙️ Settings")
-    
-    # Custom watchlist
-    st.subheader("⭐ Custom Watchlist")
-    
-    custom_input = st.text_input("Add symbols (comma-separated)")
-    if st.button("Add to Watchlist"):
-        new_symbols = [s.strip().upper() for s in custom_input.split(',') if s.strip()]
-        st.session_state.custom_symbols.extend(new_symbols)
-        st.session_state.custom_symbols = list(set(st.session_state.custom_symbols))
-        st.success(f"Added {len(new_symbols)} symbols")
-    
-    if st.session_state.custom_symbols:
-        st.write("Current watchlist:", ', '.join(st.session_state.custom_symbols))
-        if st.button("Clear Watchlist"):
-            st.session_state.custom_symbols = []
-            st.success("Watchlist cleared")
-    
-    # Risk settings
-    st.subheader("💰 Risk Management")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        max_position_size = st.slider("Max Position Size (%)", 1, 10, 3)
-        stop_loss = st.slider("Stop Loss (%)", 10, 50, 50)
-    
-    with col2:
-        profit_target = st.slider("Profit Target (%)", 50, 200, 100)
-        max_positions = st.slider("Max Open Positions", 1, 20, 5)
-    
-    if st.button("Save Settings"):
-        # Update analyzer config
-        analyzer.strategies_config['risk_management']['max_position_size_squeeze'] = max_position_size / 100
-        analyzer.strategies_config['risk_management']['stop_loss_percentage'] = stop_loss / 100
-        analyzer.strategies_config['risk_management']['profit_target_long'] = profit_target / 100
-        st.success("Settings saved!")
-    
-    # Discord webhook test
-    st.subheader("🔔 Discord Configuration")
-    if st.button("Test Discord Webhook"):
-        if alert_manager.send_test_alert():
-            st.success("✅ Discord webhook is working!")
-        else:
-            st.error("❌ Discord webhook failed. Check configuration.")
+    closed_positions = position_manager.get_closed_positions()
+    if closed_positions:
+        strategy_stats = {}
+        
+        for position in closed_positions:
+            strategy = position.get('strategy', 'UNKNOWN')
+            if strategy not in strategy_stats:
+                strategy_stats[strategy] = {
+                    'count': 0,
+                    'wins': 0,
+                    'total_pnl': 0,
+                    'avg_pnl': 0
+                }
+            
+            strategy_stats[strategy]['count'] += 1
+            if position.get('final_pnl', 0) > 0:
+                strategy_stats[strategy]['wins'] += 1
+            strategy_stats[strategy]['total_pnl'] += position.get('final_pnl', 0)
+        
+        # Calculate averages
+        for strategy in strategy_stats:
+            if strategy_stats[strategy]['count'] > 0:
+                strategy_stats[strategy]['avg_pnl'] = (
+                    strategy_stats[strategy]['total_pnl'] / 
+                    strategy_stats[strategy]['count']
+                )
+        
+        # Display metrics
+        cols = st.columns(min(3, len(strategy_stats)))
+        
+        for i, (strategy, stats) in enumerate(strategy_stats.items()):
+            win_rate = (stats['wins'] / stats['count'] * 100) if stats['count'] > 0 else 0
+            
+            with cols[i % 3]:
+                st.metric(
+                    strategy.replace('_', ' ').title(), 
+                    f"{win_rate:.1f}% Win Rate",
+                    f"Total: ${stats['total_pnl']:,.0f} | Avg: ${stats['avg_pnl']:,.0f}"
+                )
+        
+        # Daily P&L chart if available
+        if len(closed_positions) > 0:
+            st.subheader("📈 P&L Progression")
+            import pandas as pd
+            import plotly.express as px
+            
+            # Create cumulative P&L
+            pnl_data = []
+            cumulative = 0
+            for p in closed_positions:
+                cumulative += p.get('final_pnl', 0)
+                pnl_data.append({
+                    'Date': p.get('exit_time', datetime.now()),
+                    'Cumulative P&L': cumulative,
+                    'Trade P&L': p.get('final_pnl', 0)
+                })
+            
+            df = pd.DataFrame(pnl_data)
+            
+            fig = px.line(df, x='Date', y='Cumulative P&L', 
+                         title='Cumulative P&L Over Time',
+                         markers=True)
+            fig.update_layout(template='plotly_dark')
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No closed positions yet. Start trading to see performance metrics!")
 
 # Footer
 ui.render_footer()
 
-# Auto-refresh for positions
+# Auto-refresh for active positions
 if len(position_manager.get_active_positions()) > 0:
-    time.sleep(30)  # Refresh every 30 seconds if positions are open
+    st.empty()  # Placeholder for auto-refresh
+    time.sleep(30)  # Refresh every 30 seconds
     st.rerun()
