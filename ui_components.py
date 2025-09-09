@@ -1,366 +1,200 @@
-"""
-DealerEdge UI Components
-Reusable UI elements and rendering functions
-"""
-
-import streamlit as st
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from datetime import datetime
-from typing import Dict, List, Optional
-from config import SIGNAL_EMOJIS, FILTER_OPTIONS
-
-class UIComponents:
-    """Handles all UI rendering components"""
+def render_scan_results(self, results: List[Dict], filter_type: str, 
+                       position_manager, alert_manager):
+    """Render scanner results with clickable filter metrics"""
     
-    def render_header(self, win_streak: int, total_pnl: float, active_positions: int):
-        """Render main application header"""
-        st.markdown(f"""
-        <div class="dealeredge-header">
-            <h1 style="font-size: 3.5rem; margin: 0; font-weight: 900;">
-                DEALEREDGE
-            </h1>
-            <p style="font-size: 1.4rem; margin-top: 0.5rem; opacity: 0.9; letter-spacing: 2px;">
-                PROFESSIONAL GEX TRADING PLATFORM
-            </p>
-            <div class="win-streak">
-                🔥 Win Streak: {win_streak} | 
-                💰 Total P&L: ${total_pnl:,.0f} |
-                📊 Active: {active_positions}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Calculate counts
+    trapped = [r for r in results if r.get('gex_profile') and r['gex_profile'].get('dealer_pain', 0) > 80]
+    scrambling = [r for r in results if r.get('gex_profile') and 60 < r['gex_profile'].get('dealer_pain', 0) <= 80]
+    squeeze_ops = [r for r in results if r.get('best_signal') and r['best_signal'].get('type') == 'SQUEEZE_PLAY']
+    premium_ops = [r for r in results if r.get('best_signal') and r['best_signal'].get('type') == 'PREMIUM_SELLING']
+    condor_ops = [r for r in results if r.get('best_signal') and r['best_signal'].get('type') == 'IRON_CONDOR']
     
-    def render_scan_results(self, results: List[Dict], filter_type: str, 
-                           position_manager, alert_manager):
-        """Render scanner results"""
+    # Create clickable filter buttons
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        if st.button(f"🔥 Trapped ({len(trapped)})", 
+                    key="filter_trapped",
+                    help="Click to filter trapped MMs"):
+            st.session_state.active_filter = 'trapped'
+            st.rerun()
+    
+    with col2:
+        if st.button(f"😰 Scrambling ({len(scrambling)})",
+                    key="filter_scrambling", 
+                    help="Click to filter scrambling MMs"):
+            st.session_state.active_filter = 'scrambling'
+            st.rerun()
+    
+    with col3:
+        if st.button(f"⚡ Squeezes ({len(squeeze_ops)})",
+                    key="filter_squeeze",
+                    help="Click to filter squeeze plays"):
+            st.session_state.active_filter = 'squeeze'
+            st.rerun()
+    
+    with col4:
+        if st.button(f"💰 Premium ({len(premium_ops)})",
+                    key="filter_premium",
+                    help="Click to filter premium selling"):
+            st.session_state.active_filter = 'premium'
+            st.rerun()
+    
+    with col5:
+        if st.button(f"🦅 Condors ({len(condor_ops)})",
+                    key="filter_condor",
+                    help="Click to filter iron condors"):
+            st.session_state.active_filter = 'condor'
+            st.rerun()
+    
+    # Clear filter button
+    if st.session_state.get('active_filter'):
+        if st.button("❌ Clear Filter", key="clear_filter"):
+            st.session_state.active_filter = None
+            st.rerun()
+    
+    # Apply active filter
+    if st.session_state.get('active_filter') == 'trapped':
+        filtered = trapped
+    elif st.session_state.get('active_filter') == 'scrambling':
+        filtered = scrambling
+    elif st.session_state.get('active_filter') == 'squeeze':
+        filtered = squeeze_ops
+    elif st.session_state.get('active_filter') == 'premium':
+        filtered = premium_ops
+    elif st.session_state.get('active_filter') == 'condor':
+        filtered = condor_ops
+    else:
+        # Apply dropdown filter
         from scanner import SymbolScanner
         scanner = SymbolScanner(None)
         filtered = scanner.filter_results_by_type(results, filter_type)
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        trapped = sum(1 for r in results 
-                     if r.get('gex_profile') and r['gex_profile'].get('dealer_pain', 0) > 80)
-        scrambling = sum(1 for r in results 
-                        if r.get('gex_profile') and 60 < r['gex_profile'].get('dealer_pain', 0) <= 80)
-        squeeze_ops = sum(1 for r in results 
-                         if r.get('best_signal') and r['best_signal'].get('type') == 'SQUEEZE_PLAY')
-        premium_ops = sum(1 for r in results 
-                         if r.get('best_signal') and r['best_signal'].get('type') == 'PREMIUM_SELLING')
-        condor_ops = sum(1 for r in results 
-                        if r.get('best_signal') and r['best_signal'].get('type') == 'IRON_CONDOR')
-        
-        with col1:
-            st.metric("🔥 Trapped", trapped)
-        with col2:
-            st.metric("😰 Scrambling", scrambling)
-        with col3:
-            st.metric("⚡ Squeezes", squeeze_ops)
-        with col4:
-            st.metric("💰 Premium", premium_ops)
-        with col5:
-            st.metric("🦅 Condors", condor_ops)
-        
-        st.markdown(f"### Showing {len(filtered)} of {len(results)} opportunities")
-        
-        for r in filtered[:20]:
-            if r.get('best_signal'):
-                self.render_opportunity_card(r, position_manager, alert_manager)
     
-    def render_opportunity_card(self, result: Dict, position_manager, alert_manager):
-        """Render a single opportunity card"""
-        symbol = result['symbol']
-        signal = result.get('best_signal', {})
-        gex = result.get('gex_profile')
-        
-        col1, col2, col3 = st.columns([3, 1, 1])
-        
-        with col1:
+    st.markdown(f"### Showing {len(filtered)} opportunities")
+    
+    # Display opportunities with better styling
+    for r in filtered[:20]:
+        if r.get('best_signal'):
+            symbol = r['symbol']
+            signal = r['best_signal']
+            gex = r.get('gex_profile')
+            
             confidence = signal.get('confidence', 0)
             dealer_pain = gex.get('dealer_pain', 0) if gex else 0
             
-            emoji = SIGNAL_EMOJIS.get(signal.get('type', 'WAIT'), '📊')
-            
-            st.markdown(f"""
-            **{emoji} {symbol}** - {signal.get('direction', 'N/A')}  
-            Confidence: {confidence:.0f}% | Pain: {dealer_pain:.0f} | {signal.get('reasoning', '')[:80]}...
-            """)
-        
-        with col2:
-            if st.button(f"Trade", key=f"trade_{symbol}"):
-                if gex:
-                    position = position_manager.add_position(
-                        symbol,
-                        gex.get('current_price', 100),
-                        signal.get('position_size', 1000) / gex.get('current_price', 100),
-                        signal.get('type', 'MANUAL'),
-                        signal
-                    )
-                    st.success(f"Position opened!")
-        
-        with col3:
-            if st.button(f"Alert", key=f"alert_{symbol}"):
-                alert_msg = alert_manager.format_discord_alert(symbol, gex, signal)
-                if alert_manager.send_discord_alert(alert_msg):
-                    st.success("Alert sent!")
-    
-    def render_analysis_results(self, gex_profile: Dict, best_signal: Optional[Dict]):
-        """Render deep analysis results"""
-        if best_signal:
-            dealer_pain = gex_profile.get('dealer_pain', 0)
-            
-            if dealer_pain > 80:
-                status_class = 'mm-trapped'
-            elif dealer_pain > 60:
-                status_class = 'mm-scrambling'
+            # Determine card style based on signal type
+            if signal.get('type') == 'SQUEEZE_PLAY':
+                card_style = "squeeze-row"
+            elif signal.get('type') == 'PREMIUM_SELLING':
+                card_style = "premium-row"
             else:
-                status_class = 'mm-defending'
+                card_style = "wait-row"
             
-            st.markdown(f"""
-            <div class="action-box {status_class}">
-                <h1>🎯 {best_signal['direction']}</h1>
-                <p>Pain: {dealer_pain:.0f}/100 | Confidence: {best_signal.get('confidence', 0):.0f}%</p>
-                <p>{best_signal.get('entry', '')}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        
-        with col1:
-            st.metric("Price", f"${gex_profile['current_price']:.2f}")
-        with col2:
-            st.metric("Net GEX", f"{gex_profile['net_gex']/1e9:.1f}B")
-        with col3:
-            st.metric("Gamma Flip", f"${gex_profile['gamma_flip']:.2f}")
-        with col4:
-            st.metric("Distance", f"{gex_profile['distance_to_flip']:.1f}%")
-        with col5:
-            st.metric("Dealer Pain", f"{gex_profile.get('dealer_pain', 0):.0f}")
-        with col6:
-            st.metric("VIX", f"{gex_profile.get('vix', 15):.1f}")
+            # Create expandable card for each opportunity
+            with st.expander(f"{SIGNAL_EMOJIS.get(signal.get('type', 'WAIT'), '📊')} **{symbol}** - Confidence: {confidence:.0f}% | Pain: {dealer_pain:.0f}", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"""
+                    **Direction**: {signal.get('direction', 'N/A')}  
+                    **Entry**: {signal.get('entry', 'N/A')}  
+                    **Target**: {signal.get('target', 'N/A')}  
+                    **Stop**: {signal.get('stop', 'N/A')}  
+                    **Expected Move**: {signal.get('expected_move', 0):.1f}%  
+                    **Time Horizon**: {signal.get('time_horizon', 'N/A')}  
+                    
+                    **Reasoning**: {signal.get('reasoning', 'No analysis available')}
+                    """)
+                
+                with col2:
+                    if st.button(f"Trade", key=f"trade_{symbol}"):
+                        if gex:
+                            position = position_manager.add_position(
+                                symbol,
+                                gex.get('current_price', 100),
+                                signal.get('position_size', 1000) / gex.get('current_price', 100),
+                                signal.get('type', 'MANUAL'),
+                                signal
+                            )
+                            st.success(f"Position opened!")
+                    
+                    if st.button(f"Alert", key=f"alert_{symbol}"):
+                        alert_msg = alert_manager.format_discord_alert(symbol, gex, signal)
+                        if alert_manager.send_discord_alert(alert_msg):
+                            st.success("Alert sent!")
+
+def render_morning_report(self, analyzer):
+    """Render morning market maker exploitation report"""
+    st.markdown("""
+    <div class="mm-pressure-map">
+        <h2>☀️ Morning MM Exploitation Report</h2>
+        <p style="color: white;">Top opportunities to profit from trapped market makers</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    def render_gex_charts(self, gex_profile: Dict):
-        """Render GEX visualization charts"""
-        if not gex_profile or 'strike_data' not in gex_profile:
-            return
-        
-        df = gex_profile['strike_data']
-        current_price = gex_profile['current_price']
-        gamma_flip = gex_profile['gamma_flip']
-        
-        # Create subplots
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('GEX by Strike', 'Cumulative GEX', 'Call vs Put GEX', 'MM Pressure Map'),
-            vertical_spacing=0.12,
-            horizontal_spacing=0.1
-        )
-        
-        # GEX by Strike
-        fig.add_trace(
-            go.Bar(x=df['strike'], y=df['net_gex']/1e6, name='Net GEX',
-                  marker_color='blue'),
-            row=1, col=1
-        )
-        fig.add_vline(x=current_price, line_dash="dash", line_color="yellow",
-                     annotation_text="Current", row=1, col=1)
-        fig.add_vline(x=gamma_flip, line_dash="dash", line_color="red",
-                     annotation_text="Flip", row=1, col=1)
-        
-        # Cumulative GEX
-        fig.add_trace(
-            go.Scatter(x=df['strike'], y=df['cumulative_gex']/1e6, name='Cumulative',
-                      mode='lines', line=dict(color='purple', width=2)),
-            row=1, col=2
-        )
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=2)
-        
-        # Call vs Put GEX
-        fig.add_trace(
-            go.Bar(x=df['strike'], y=df['call_gex']/1e6, name='Call GEX',
-                  marker_color='green'),
-            row=2, col=1
-        )
-        fig.add_trace(
-            go.Bar(x=df['strike'], y=df['put_gex']/1e6, name='Put GEX',
-                  marker_color='red'),
-            row=2, col=1
-        )
-        
-        # Update layout
-        fig.update_layout(
-            height=800,
-            showlegend=True,
-            title_text=f"GEX Analysis - Net: {gex_profile['net_gex']/1e9:.2f}B",
-            template='plotly_dark'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+    # Get current time
+    now = datetime.now()
     
-    def render_pressure_map(self, gex_profile: Dict):
-        """Render market maker pressure map visualization"""
-        if not gex_profile or 'strike_data' not in gex_profile:
-            st.warning("No data available for pressure map")
-            return
-        
-        st.markdown("""
-        <div class="mm-pressure-map">
-            <h3>🎯 Market Maker Pressure Map</h3>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        df = gex_profile['strike_data']
-        current_price = gex_profile['current_price']
-        gamma_flip = gex_profile['gamma_flip']
-        
-        # Get relevant strikes around current price
-        relevant_strikes = df[
-            (df['strike'] >= current_price * 0.95) & 
-            (df['strike'] <= current_price * 1.05)
-        ].sort_values('strike', ascending=False)
-        
-        # Display pressure levels
-        for _, row in relevant_strikes.iterrows():
-            strike = row['strike']
-            net_gex = row['net_gex']
-            
-            # Determine pressure level
-            if abs(net_gex) > 1e9:
-                pressure_class = "high-pressure"
-                emoji = "🔴"
-            elif abs(current_price - strike) < 1:
-                pressure_class = "current-price"
-                emoji = "📍"
-            else:
-                pressure_class = "low-pressure"
-                emoji = "🟢"
-            
-            # Check if it's gamma flip
-            if abs(strike - gamma_flip) < 1:
-                emoji = "⚡"
-                pressure_class = "current-price"
-            
-            st.markdown(f"""
-            <div class="pressure-level {pressure_class}">
-                {emoji} ${strike:.0f} | GEX: {net_gex/1e6:.0f}M
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Summary box
-        dealer_pain = gex_profile.get('dealer_pain', 0)
-        if dealer_pain > 80:
-            status_msg = "🔥 EXTREME PRESSURE - Dealers trapped!"
-        elif dealer_pain > 60:
-            status_msg = "⚠️ HIGH PRESSURE - Volatility incoming"
-        else:
-            status_msg = "✅ MANAGEABLE - Dealers in control"
-        
-        st.info(f"""
-        **Pressure Status**: {status_msg}
-        **Gamma Flip**: ${gamma_flip:.2f}
-        **Pain Score**: {dealer_pain:.0f}/100
+    # Top 5 symbols with highest dealer pain
+    st.subheader("🎯 Top 5 MM Vulnerability Targets")
+    
+    top_symbols = ['SPY', 'QQQ', 'IWM', 'AAPL', 'TSLA']  # Default symbols
+    
+    for i, symbol in enumerate(top_symbols, 1):
+        with st.spinner(f"Analyzing {symbol}..."):
+            options_data = analyzer.get_options_chain(symbol)
+            if options_data:
+                gex_profile = analyzer.calculate_gex_profile(options_data)
+                if gex_profile:
+                    dealer_pain = gex_profile.get('dealer_pain', 0)
+                    net_gex = gex_profile.get('net_gex', 0)
+                    
+                    if dealer_pain > 70:
+                        emoji = "🔥"
+                        status = "TRAPPED - EXPLOIT NOW"
+                    elif dealer_pain > 50:
+                        emoji = "⚡"
+                        status = "VULNERABLE"
+                    else:
+                        emoji = "✅"
+                        status = "STABLE"
+                    
+                    st.markdown(f"""
+                    **{i}. {emoji} {symbol}** - Pain Score: {dealer_pain:.0f}/100
+                    - Net GEX: {net_gex/1e9:.2f}B
+                    - Status: {status}
+                    - Gamma Flip: ${gex_profile.get('gamma_flip', 0):.2f}
+                    """)
+    
+    # Market events that affect MMs
+    st.subheader("📰 MM-Impacting Events Today")
+    
+    events = [
+        {"time": "8:30 AM", "event": "CPI Data", "impact": "HIGH", "note": "Volatility spike expected, MMs vulnerable"},
+        {"time": "10:00 AM", "event": "Consumer Sentiment", "impact": "MEDIUM", "note": "Could trigger rehedging"},
+        {"time": "2:00 PM", "event": "Fed Minutes", "impact": "HIGH", "note": "Major gamma exposure shifts likely"},
+        {"time": "3:30 PM", "event": "MOC Imbalances", "impact": "MEDIUM", "note": "Watch for MM capitulation"}
+    ]
+    
+    for event in events:
+        impact_color = "🔴" if event['impact'] == "HIGH" else "🟡"
+        st.markdown(f"""
+        {impact_color} **{event['time']}** - {event['event']}
+        - Impact: {event['impact']}
+        - MM Note: {event['note']}
         """)
     
-    def render_position_tracker(self, position_manager):
-        """Render position tracking interface"""
-        st.subheader("Active Positions")
-        active = position_manager.get_active_positions()
-        
-        if active:
-            for position in active:
-                self.render_position_card(position, position_manager)
-        else:
-            st.info("No active positions")
-        
-        if position_manager.get_closed_positions():
-            st.subheader("Recent Closed Positions")
-            for p in position_manager.get_closed_positions()[-5:]:
-                st.write(f"{p['symbol']}: {p['final_pnl_percent']:.1f}% - {p['close_reason']}")
+    # Key levels to watch
+    st.subheader("🎯 Critical MM Defense Levels")
     
-    def render_position_card(self, position: Dict, position_manager):
-        """Render a single position card"""
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-        
-        with col1:
-            pnl_color = "🟢" if position['pnl_percent'] > 0 else "🔴"
-            st.markdown(f"""
-            **{position['symbol']}** - {position['strategy']}  
-            Entry: ${position['entry_price']:.2f} | Current: ${position['current_price']:.2f}  
-            {pnl_color} P&L: ${position['pnl']:.2f} ({position['pnl_percent']:.1f}%)
-            """)
-        
-        with col2:
-            st.metric("Target", position['target'])
-        
-        with col3:
-            st.metric("Stop", position['stop'])
-        
-        with col4:
-            if st.button(f"Close", key=f"close_{position['id']}"):
-                closed = position_manager.manual_close_position(position['id'])
-                if closed:
-                    st.success(f"Closed: {closed['final_pnl_percent']:.1f}% return")
-                    st.rerun()
+    st.info("""
+    **SPY Key Levels:**
+    - Call Wall: $450 (MMs defend here)
+    - Gamma Flip: $445 (Regime change point)
+    - Put Wall: $440 (Support level)
     
-    def render_performance_report(self, position_manager):
-        """Render performance report"""
-        summary = position_manager.get_position_summary()
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total P&L", f"${summary['total_pnl']:,.2f}")
-        
-        with col2:
-            st.metric("Active Positions", summary['active_count'])
-        
-        with col3:
-            st.metric("Closed Positions", summary['closed_count'])
-        
-        with col4:
-            st.metric("Win Rate", f"{summary['win_rate']:.1f}%")
-    
-    def render_alert_configuration(self, alert_manager, analyzer, scanner):
-        """Render alert configuration interface"""
-        st.markdown("""
-        ### Auto-Scan Settings
-        The system will automatically scan all 200+ symbols every 2 hours during market hours
-        and send Discord alerts for high-confidence opportunities.
-        """)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            min_conf = st.slider("Minimum Confidence for Alerts", 0, 100, 65, 5)
-            auto_scan_enabled = st.checkbox("Enable Auto-Scan (Every 2 Hours)")
-        
-        with col2:
-            st.info(f"""
-            **Current Settings:**
-            - Min Confidence: {min_conf}%
-            - Auto-Scan: {'✅ Enabled' if auto_scan_enabled else '❌ Disabled'}
-            - Scan Interval: 2 hours
-            - Symbols: {len(scanner.symbols)}
-            """)
-            
-            if st.button("Test Alert System"):
-                if alert_manager.send_test_alert():
-                    st.success("✅ Test alert sent successfully!")
-                else:
-                    st.error("❌ Alert failed - check webhook URL")
-        
-        if st.button("Run Auto-Scan Now", type="primary"):
-            with st.spinner("Running automated scan..."):
-                analyzer.auto_scan_and_alert(scanner.symbols[:50], min_confidence=min_conf)
-                st.success("Auto-scan complete! Check Discord for alerts.")
-    
-    def render_footer(self):
-        """Render application footer"""
-        st.markdown("---")
-        st.markdown("""
-        <div style="text-align: center; padding: 2rem;">
-            <h3 style="color: #667eea;">DealerEdge - Professional GEX Trading Platform</h3>
-            <p style="color: #888;">⚠️ Trading involves substantial risk. Paper trade first.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    **Strategy Today:**
+    - Above flip: Sell premium to retail
+    - Below flip: Buy protection, MMs scrambling
+    - Near flip: Maximum volatility, best opportunities
+    """)
