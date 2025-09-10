@@ -26,6 +26,41 @@ DEALEREDGE_CSS = """
         background-color: transparent !important;
     }
     
+    /* === FIX FOR TEXT VISIBILITY === */
+    .stMarkdown, .stText, p, span, div, label {
+        color: #ffffff !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        color: #ffffff !important;
+    }
+    
+    /* Fix for expander text */
+    .streamlit-expanderHeader {
+        color: #ffffff !important;
+        background-color: rgba(255, 255, 255, 0.05) !important;
+    }
+    
+    /* Fix for all text in expanders */
+    [data-testid="stExpander"] p,
+    [data-testid="stExpander"] span,
+    [data-testid="stExpander"] div,
+    [data-testid="stExpander"] label {
+        color: #ffffff !important;
+    }
+    
+    /* Fix selectbox text */
+    [data-testid="stSelectbox"] label {
+        color: #ffffff !important;
+    }
+    
+    /* Fix input fields */
+    input {
+        color: #ffffff !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    /* Force consistent text colors on metrics */
     [data-testid="stMetricValue"] {
         color: #ffffff !important;
         font-weight: bold !important;
@@ -92,6 +127,10 @@ DEALEREDGE_CSS = """
         overflow: hidden;
     }
     
+    .action-box h1, .action-box p {
+        color: white !important;
+    }
+    
     .action-box::after {
         content: "🎯";
         position: absolute;
@@ -138,7 +177,7 @@ DEALEREDGE_CSS = """
         50% { opacity: 0.85; }
     }
     
-    /* === BUTTONS === */
+    /* === DEALEREDGE BUTTONS === */
     .stButton > button {
         background: linear-gradient(135deg, var(--accent) 0%, var(--secondary) 100%);
         color: white !important;
@@ -157,7 +196,25 @@ DEALEREDGE_CSS = """
         box-shadow: 0 6px 20px rgba(102,126,234,0.6);
     }
     
-    /* === WIN STREAK === */
+    /* === METRIC CARDS === */
+    .metric-card {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        transition: all 0.3s;
+        border: 1px solid rgba(102,126,234,0.2);
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        border-color: var(--accent);
+    }
+    
+    /* === WIN STREAK ANIMATION === */
     .win-streak {
         background: linear-gradient(135deg, #FFD700, #FFA500);
         color: #1a1a1a;
@@ -178,6 +235,95 @@ DEALEREDGE_CSS = """
             box-shadow: 0 0 50px rgba(255,215,0,0.8);
             transform: scale(1.05);
         }
+    }
+    
+    /* === PRESSURE MAP === */
+    .mm-pressure-map {
+        background: linear-gradient(135deg, var(--dark), #302b63, #24243e);
+        border-radius: 20px;
+        padding: 2rem;
+        color: white;
+        font-family: 'Courier New', monospace;
+        font-size: 1.1rem;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        position: relative;
+        border: 1px solid var(--accent);
+    }
+    
+    .mm-pressure-map h2, .mm-pressure-map h3, .mm-pressure-map p {
+        color: white !important;
+    }
+    
+    .pressure-level {
+        margin: 1rem 0;
+        padding: 1rem;
+        border-radius: 10px;
+        position: relative;
+        transition: all 0.3s;
+        color: white !important;
+    }
+    
+    .pressure-level:hover {
+        transform: scale(1.02);
+    }
+    
+    .high-pressure {
+        background: linear-gradient(90deg, rgba(255,0,0,0.3), rgba(255,0,0,0.1));
+        border: 2px solid var(--danger);
+        animation: pulse-red 2s infinite;
+        box-shadow: 0 0 20px rgba(255,0,0,0.3);
+    }
+    
+    @keyframes pulse-red {
+        0%, 100% { 
+            box-shadow: 0 0 20px rgba(255,0,0,0.3);
+        }
+        50% { 
+            box-shadow: 0 0 40px rgba(255,0,0,0.6);
+        }
+    }
+    
+    .current-price {
+        background: linear-gradient(90deg, rgba(255,215,0,0.5), rgba(255,215,0,0.2));
+        border: 2px solid #ffd700;
+        font-weight: bold;
+        box-shadow: 0 0 30px rgba(255,215,0,0.4);
+        animation: golden-glow 2s infinite;
+    }
+    
+    @keyframes golden-glow {
+        0%, 100% { 
+            box-shadow: 0 0 30px rgba(255,215,0,0.4);
+        }
+        50% { 
+            box-shadow: 0 0 50px rgba(255,215,0,0.7);
+        }
+    }
+    
+    .low-pressure {
+        background: linear-gradient(90deg, rgba(0,255,0,0.3), rgba(0,255,0,0.1));
+        border: 2px solid var(--success);
+        box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    }
+    
+    /* === SCROLLBAR STYLING === */
+    ::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, var(--accent), var(--secondary));
+        border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(135deg, var(--secondary), var(--accent));
     }
 </style>
 """
