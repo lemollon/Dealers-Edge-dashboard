@@ -1,4 +1,4 @@
-\"""
+"""
 DealerEdge Scanner Module
 Handles 250+ symbol scanning with MM vulnerability detection
 """
@@ -516,7 +516,7 @@ class SymbolScanner:
             return results
     
     def get_scan_statistics(self, results: List[Dict]) -> Dict:
-        """Get statistics from scan results with safe error handling"""
+        """Get statistics from scan results with bulletproof error handling"""
         if not results:
             return {
                 'total_scanned': 0,
@@ -529,33 +529,68 @@ class SymbolScanner:
             }
         
         try:
-            # Safe calculations with default values
+            # Helper functions for safe nested dictionary access
+            def safe_get_urgency(result):
+                """Safely get urgency from best_exploit"""
+                try:
+                    best_exploit = result.get('best_exploit')
+                    if best_exploit and isinstance(best_exploit, dict):
+                        return best_exploit.get('urgency')
+                    return None
+                except (AttributeError, TypeError, KeyError):
+                    return None
+            
+            def safe_get_confidence(result):
+                """Safely get confidence from best_signal"""
+                try:
+                    best_signal = result.get('best_signal')
+                    if best_signal and isinstance(best_signal, dict):
+                        return best_signal.get('confidence', 0)
+                    return 0
+                except (AttributeError, TypeError, KeyError):
+                    return 0
+            
+            # Calculate statistics with safe operations
             total_scanned = len(results)
-            opportunities = len([r for r in results if r.get('opportunity_score', 0) > 50])
-            trapped_mms = len([r for r in results if r.get('mm_vulnerability', 0) > 80])
-            scrambling_mms = len([r for r in results if 60 < r.get('mm_vulnerability', 0) <= 80])
-            
-            # Safe average calculation
-            vulnerabilities = [r.get('mm_vulnerability', 0) for r in results]
-            avg_vulnerability = sum(vulnerabilities) / len(vulnerabilities) if vulnerabilities else 0
-            
-            # Safe critical alerts counting
+            opportunities = 0
+            trapped_mms = 0
+            scrambling_mms = 0
+            vulnerability_sum = 0
             critical_alerts = 0
-            for r in results:
-                best_exploit = r.get('best_exploit')
-                if best_exploit and isinstance(best_exploit, dict):
-                    urgency = best_exploit.get('urgency', '')
+            high_confidence = 0
+            
+            for result in results:
+                try:
+                    # Opportunity score check
+                    opp_score = result.get('opportunity_score', 0)
+                    if isinstance(opp_score, (int, float)) and opp_score > 50:
+                        opportunities += 1
+                    
+                    # MM vulnerability checks
+                    mm_vuln = result.get('mm_vulnerability', 0)
+                    if isinstance(mm_vuln, (int, float)):
+                        vulnerability_sum += mm_vuln
+                        if mm_vuln > 80:
+                            trapped_mms += 1
+                        elif 60 < mm_vuln <= 80:
+                            scrambling_mms += 1
+                    
+                    # Critical alerts check
+                    urgency = safe_get_urgency(result)
                     if urgency in ['CRITICAL', 'HIGH', 'TIME_SENSITIVE']:
                         critical_alerts += 1
-            
-            # Safe high confidence counting
-            high_confidence = 0
-            for r in results:
-                best_signal = r.get('best_signal')
-                if best_signal and isinstance(best_signal, dict):
-                    confidence = best_signal.get('confidence', 0)
-                    if confidence > 75:
+                    
+                    # High confidence check
+                    confidence = safe_get_confidence(result)
+                    if isinstance(confidence, (int, float)) and confidence > 75:
                         high_confidence += 1
+                        
+                except (AttributeError, TypeError, KeyError):
+                    # Skip problematic results
+                    continue
+            
+            # Calculate average vulnerability safely
+            avg_vulnerability = (vulnerability_sum / total_scanned) if total_scanned > 0 else 0
             
             return {
                 'total_scanned': total_scanned,
@@ -568,14 +603,14 @@ class SymbolScanner:
             }
             
         except Exception as e:
-            # Return safe defaults if any error occurs
+            # Ultimate fallback - return safe defaults with error info
             return {
-                'total_scanned': len(results),
+                'total_scanned': len(results) if results else 0,
                 'opportunities': 0,
                 'trapped_mms': 0,
                 'scrambling_mms': 0,
                 'avg_vulnerability': 0,
                 'critical_alerts': 0,
                 'high_confidence': 0,
-                'error': str(e)
+                'error': f"Statistics calculation error: {str(e)}"
             }
