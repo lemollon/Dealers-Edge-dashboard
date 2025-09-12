@@ -125,13 +125,12 @@ class SymbolScanner:
             if not gex_profile:
                 return patterns
             
-            # Extract key metrics with safe defaults
+            # Extract key metrics
             dealer_pain = gex_profile.get('dealer_pain', 0)
             net_gex = gex_profile.get('net_gex', 0)
             distance_to_flip = gex_profile.get('distance_to_flip', 0)
             current_price = gex_profile.get('current_price', 0)
             gamma_flip = gex_profile.get('gamma_flip', 0)
-            vix = gex_profile.get('vix', 15)
             
             # Pattern 1: Trapped MM (extreme pain)
             if dealer_pain > 80:
@@ -195,7 +194,7 @@ class SymbolScanner:
                 patterns['mm_vulnerability'] = max(patterns['mm_vulnerability'], 70)
             
             # Pattern 6: Vanna Exposure (volatility sensitivity)
-            if vix > 20 and net_gex < 0:
+            if gex_profile.get('vix', 15) > 20 and net_gex < 0:
                 patterns['patterns_found'].append({
                     'type': 'VANNA_SQUEEZE',
                     'confidence': 75,
@@ -206,10 +205,10 @@ class SymbolScanner:
                 })
                 patterns['mm_vulnerability'] = max(patterns['mm_vulnerability'], 75)
             
-            # Set best exploit - safe handling
+            # Set best exploit
             if patterns['patterns_found']:
                 patterns['best_exploit'] = max(patterns['patterns_found'], 
-                                              key=lambda x: x.get('confidence', 0))
+                                              key=lambda x: x['confidence'])
             
             # Add GEX data to patterns
             patterns['gex_profile'] = gex_profile
@@ -244,9 +243,6 @@ class SymbolScanner:
                 
                 # Get standard signals
                 options_data = self.analyzer.get_options_chain(symbol)
-                signals = []
-                gex_profile = None
-                
                 if options_data:
                     gex_profile = self.analyzer.calculate_gex_profile(options_data)
                     if gex_profile:
@@ -254,25 +250,22 @@ class SymbolScanner:
                         filtered_signals = [s for s in signals 
                                           if s.get('confidence', 0) >= min_confidence]
                         
-                        # Use filtered signals if available, otherwise use all signals
-                        signals = filtered_signals if filtered_signals else signals
-                        
                         # Calculate opportunity score with MM vulnerability
                         opportunity_score = self.calculate_opportunity_score(
                             gex_profile, 
-                            signals,
-                            mm_patterns.get('mm_vulnerability', 0)
+                            filtered_signals if filtered_signals else signals,
+                            mm_patterns['mm_vulnerability']
                         )
                         
                         return {
                             'symbol': symbol,
                             'gex_profile': gex_profile,
-                            'signals': signals,
-                            'best_signal': signals[0] if signals else None,
+                            'signals': filtered_signals if filtered_signals else signals,
+                            'best_signal': filtered_signals[0] if filtered_signals else signals[0] if signals else None,
                             'opportunity_score': opportunity_score,
-                            'mm_patterns': mm_patterns.get('patterns_found', []),
-                            'mm_vulnerability': mm_patterns.get('mm_vulnerability', 0),
-                            'best_exploit': mm_patterns.get('best_exploit')
+                            'mm_patterns': mm_patterns['patterns_found'],
+                            'mm_vulnerability': mm_patterns['mm_vulnerability'],
+                            'best_exploit': mm_patterns['best_exploit']
                         }
                 
                 # Return basic result if no options data
@@ -281,10 +274,10 @@ class SymbolScanner:
                     'gex_profile': None,
                     'signals': [],
                     'best_signal': None,
-                    'opportunity_score': mm_patterns.get('mm_vulnerability', 0) * 0.5,
-                    'mm_patterns': mm_patterns.get('patterns_found', []),
-                    'mm_vulnerability': mm_patterns.get('mm_vulnerability', 0),
-                    'best_exploit': mm_patterns.get('best_exploit')
+                    'opportunity_score': mm_patterns['mm_vulnerability'] * 0.5,
+                    'mm_patterns': mm_patterns['patterns_found'],
+                    'mm_vulnerability': mm_patterns['mm_vulnerability'],
+                    'best_exploit': mm_patterns['best_exploit']
                 }
                 
             except Exception as e:
@@ -292,9 +285,7 @@ class SymbolScanner:
                     'symbol': symbol,
                     'error': str(e),
                     'opportunity_score': 0,
-                    'mm_vulnerability': 0,
-                    'mm_patterns': [],
-                    'best_exploit': None
+                    'mm_vulnerability': 0
                 }
         
         # Use ThreadPoolExecutor for parallel scanning
@@ -364,30 +355,24 @@ class SymbolScanner:
     
     def is_opex_week(self) -> bool:
         """Check if current week is OPEX week"""
-        try:
-            today = datetime.now()
-            # Get third Friday of month
-            first_day = datetime(today.year, today.month, 1)
-            first_friday = first_day + timedelta(days=(4 - first_day.weekday()) % 7)
-            if first_friday.day <= 7:
-                first_friday += timedelta(days=7)
-            third_friday = first_friday + timedelta(weeks=2)
-            
-            # Check if within 5 days of OPEX
-            days_to_opex = (third_friday.date() - today.date()).days
-            return 0 <= days_to_opex <= 5
-        except:
-            return False
+        today = datetime.now()
+        # Get third Friday of month
+        first_day = datetime(today.year, today.month, 1)
+        first_friday = first_day + timedelta(days=(4 - first_day.weekday()) % 7)
+        if first_friday.day <= 7:
+            first_friday += timedelta(days=7)
+        third_friday = first_friday + timedelta(weeks=2)
+        
+        # Check if within 5 days of OPEX
+        days_to_opex = (third_friday.date() - today.date()).days
+        return 0 <= days_to_opex <= 5
     
     def is_quad_witching_week(self) -> bool:
         """Check if current week is quad witching"""
-        try:
-            today = datetime.now()
-            if today.month in [3, 6, 9, 12]:
-                return self.is_opex_week()
-            return False
-        except:
-            return False
+        today = datetime.now()
+        if today.month in [3, 6, 9, 12]:
+            return self.is_opex_week()
+        return False
     
     def scan_0dte_opportunities(self) -> List[Dict]:
         """Scan for 0DTE opportunities across high-gamma symbols"""
@@ -437,28 +422,32 @@ class SymbolScanner:
         alerts = []
         
         for symbol in symbols[:30]:  # Check top 30 for speed
-            patterns = self.scan_for_mm_patterns(symbol)
-            
-            if patterns.get('mm_vulnerability', 0) > 80:
-                best_exploit = patterns.get('best_exploit', {})
-                alerts.append({
-                    'symbol': symbol,
-                    'alert_type': 'CRITICAL',
-                    'message': f"🔥 {symbol}: MM TRAPPED - Pain {patterns.get('mm_vulnerability', 0):.0f}",
-                    'action': best_exploit.get('specific_trade', 'Monitor closely') if best_exploit else 'Monitor closely',
-                    'expected_return': best_exploit.get('expected_return', 'N/A') if best_exploit else 'N/A',
-                    'timestamp': datetime.now()
-                })
-            
-            elif patterns.get('mm_vulnerability', 0) > 70:
-                alerts.append({
-                    'symbol': symbol,
-                    'alert_type': 'WARNING',
-                    'message': f"⚠️ {symbol}: MM Vulnerable - Pain {patterns.get('mm_vulnerability', 0):.0f}",
-                    'action': 'Prepare to exploit',
-                    'expected_return': '20-50%',
-                    'timestamp': datetime.now()
-                })
+            try:
+                patterns = self.scan_for_mm_patterns(symbol)
+                
+                if patterns.get('mm_vulnerability', 0) > 80:
+                    best_exploit = patterns.get('best_exploit')
+                    alerts.append({
+                        'symbol': symbol,
+                        'alert_type': 'CRITICAL',
+                        'message': f"🔥 {symbol}: MM TRAPPED - Pain {patterns.get('mm_vulnerability', 0):.0f}",
+                        'action': best_exploit.get('specific_trade', 'Monitor closely') if best_exploit and isinstance(best_exploit, dict) else 'Monitor closely',
+                        'expected_return': best_exploit.get('expected_return', 'N/A') if best_exploit and isinstance(best_exploit, dict) else 'N/A',
+                        'timestamp': datetime.now()
+                    })
+                
+                elif patterns.get('mm_vulnerability', 0) > 70:
+                    alerts.append({
+                        'symbol': symbol,
+                        'alert_type': 'WARNING',
+                        'message': f"⚠️ {symbol}: MM Vulnerable - Pain {patterns.get('mm_vulnerability', 0):.0f}",
+                        'action': 'Prepare to exploit',
+                        'expected_return': '20-50%',
+                        'timestamp': datetime.now()
+                    })
+            except Exception as e:
+                # Skip problematic symbols
+                continue
         
         return alerts
     
@@ -474,23 +463,23 @@ class SymbolScanner:
         
         elif filter_type == "⚡ Gamma Squeeze":
             return [r for r in results 
-                   if any(p.get('type') == 'GAMMA_SQUEEZE' for p in r.get('mm_patterns', []))]
+                   if any(p['type'] == 'GAMMA_SQUEEZE' for p in r.get('mm_patterns', []))]
         
         elif filter_type == "📌 Pin Risk":
             return [r for r in results 
-                   if any(p.get('type') == 'PIN_RISK' for p in r.get('mm_patterns', []))]
+                   if any(p['type'] == 'PIN_RISK' for p in r.get('mm_patterns', []))]
         
         elif filter_type == "🌊 Charm Flow":
             return [r for r in results 
-                   if any(p.get('type') == 'CHARM_FLOW' for p in r.get('mm_patterns', []))]
+                   if any(p['type'] == 'CHARM_FLOW' for p in r.get('mm_patterns', []))]
         
         elif filter_type == "🎯 OPEX Plays":
             return [r for r in results 
-                   if any(p.get('type') == 'OPEX_PRESSURE' for p in r.get('mm_patterns', []))]
+                   if any(p['type'] == 'OPEX_PRESSURE' for p in r.get('mm_patterns', []))]
         
         elif filter_type == "💎 Vanna Squeeze":
             return [r for r in results 
-                   if any(p.get('type') == 'VANNA_SQUEEZE' for p in r.get('mm_patterns', []))]
+                   if any(p['type'] == 'VANNA_SQUEEZE' for p in r.get('mm_patterns', []))]
         
         elif filter_type == "💰 Premium Selling":
             return [r for r in results 
@@ -506,7 +495,7 @@ class SymbolScanner:
         
         elif filter_type == "🎯 Immediate Action":
             return [r for r in results 
-                   if r.get('best_exploit') and r.get('best_exploit', {}).get('urgency') in ['HIGH', 'CRITICAL', 'TIME_SENSITIVE']]
+                   if r.get('best_exploit') and r['best_exploit'].get('urgency') in ['HIGH', 'IMMEDIATE', 'CRITICAL']]
         
         elif filter_type == "🔥 High Pain (>70)":
             return [r for r in results 
@@ -516,101 +505,29 @@ class SymbolScanner:
             return results
     
     def get_scan_statistics(self, results: List[Dict]) -> Dict:
-        """Get statistics from scan results with bulletproof error handling"""
+        """Get statistics from scan results"""
         if not results:
             return {
                 'total_scanned': 0,
                 'opportunities': 0,
                 'trapped_mms': 0,
-                'scrambling_mms': 0,
                 'avg_vulnerability': 0,
-                'critical_alerts': 0,
-                'high_confidence': 0
+                'critical_alerts': 0
             }
         
-        try:
-            # Helper functions for safe nested dictionary access
-            def safe_get_urgency(result):
-                """Safely get urgency from best_exploit"""
-                try:
-                    best_exploit = result.get('best_exploit')
-                    if best_exploit and isinstance(best_exploit, dict):
-                        return best_exploit.get('urgency')
-                    return None
-                except (AttributeError, TypeError, KeyError):
-                    return None
-            
-            def safe_get_confidence(result):
-                """Safely get confidence from best_signal"""
-                try:
-                    best_signal = result.get('best_signal')
-                    if best_signal and isinstance(best_signal, dict):
-                        return best_signal.get('confidence', 0)
-                    return 0
-                except (AttributeError, TypeError, KeyError):
-                    return 0
-            
-            # Calculate statistics with safe operations
-            total_scanned = len(results)
-            opportunities = 0
-            trapped_mms = 0
-            scrambling_mms = 0
-            vulnerability_sum = 0
-            critical_alerts = 0
-            high_confidence = 0
-            
-            for result in results:
-                try:
-                    # Opportunity score check
-                    opp_score = result.get('opportunity_score', 0)
-                    if isinstance(opp_score, (int, float)) and opp_score > 50:
-                        opportunities += 1
-                    
-                    # MM vulnerability checks
-                    mm_vuln = result.get('mm_vulnerability', 0)
-                    if isinstance(mm_vuln, (int, float)):
-                        vulnerability_sum += mm_vuln
-                        if mm_vuln > 80:
-                            trapped_mms += 1
-                        elif 60 < mm_vuln <= 80:
-                            scrambling_mms += 1
-                    
-                    # Critical alerts check
-                    urgency = safe_get_urgency(result)
-                    if urgency in ['CRITICAL', 'HIGH', 'TIME_SENSITIVE']:
-                        critical_alerts += 1
-                    
-                    # High confidence check
-                    confidence = safe_get_confidence(result)
-                    if isinstance(confidence, (int, float)) and confidence > 75:
-                        high_confidence += 1
-                        
-                except (AttributeError, TypeError, KeyError):
-                    # Skip problematic results
-                    continue
-            
-            # Calculate average vulnerability safely
-            avg_vulnerability = (vulnerability_sum / total_scanned) if total_scanned > 0 else 0
-            
-            return {
-                'total_scanned': total_scanned,
-                'opportunities': opportunities,
-                'trapped_mms': trapped_mms,
-                'scrambling_mms': scrambling_mms,
-                'avg_vulnerability': round(avg_vulnerability, 1),
-                'critical_alerts': critical_alerts,
-                'high_confidence': high_confidence
-            }
-            
-        except Exception as e:
-            # Ultimate fallback - return safe defaults with error info
-            return {
-                'total_scanned': len(results) if results else 0,
-                'opportunities': 0,
-                'trapped_mms': 0,
-                'scrambling_mms': 0,
-                'avg_vulnerability': 0,
-                'critical_alerts': 0,
-                'high_confidence': 0,
-                'error': f"Statistics calculation error: {str(e)}"
-            }
+        # Safe helper function for getting urgency with proper None checking
+        def safe_urgency_check(result):
+            best_exploit = result.get('best_exploit')
+            if best_exploit and isinstance(best_exploit, dict):
+                return best_exploit.get('urgency') == 'CRITICAL'
+            return False
+        
+        return {
+            'total_scanned': len(results),
+            'opportunities': len([r for r in results if r.get('opportunity_score', 0) > 50]),
+            'trapped_mms': len([r for r in results if r.get('mm_vulnerability', 0) > 80]),
+            'scrambling_mms': len([r for r in results if 60 < r.get('mm_vulnerability', 0) <= 80]),
+            'avg_vulnerability': sum(r.get('mm_vulnerability', 0) for r in results) / len(results),
+            'critical_alerts': len([r for r in results if safe_urgency_check(r)]),
+            'high_confidence': len([r for r in results if r.get('best_signal', {}).get('confidence', 0) > 75])
+        }
