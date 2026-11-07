@@ -1,0 +1,7 @@
+# path : reason : registered
+# One line per FILE. Each entry must still contain a banned source or check.sh fails it as stale.
+# Generated 2026-11-07 when the gates were installed. These are PRE-EXISTING
+# violations, registered so the gate fails on anything NEW rather than on
+# code that was already here. Pay them down; do not add to them.
+analyzer.py : still in use, needs replacing with the warehouse or thetadata_v3 : 2026-11-07
+scanner.py : still in use, needs replacing with the warehouse or thetadata_v3 : 2026-11-07
